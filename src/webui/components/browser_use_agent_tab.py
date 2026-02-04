@@ -12,6 +12,8 @@ from browser_use.agent.views import AgentHistoryList, AgentOutput
 from browser_use.browser.session import BrowserSession
 from browser_use.browser.views import BrowserStateSummary
 from browser_use.llm.base import BaseChatModel
+from browser_use.mcp.client import MCPClient
+from browser_use.tools.service import Tools
 from gradio.components import Component
 
 from src.agent.code_agent_runner import create_flow_script
@@ -19,6 +21,21 @@ from src.utils import llm_provider
 from src.webui.webui_manager import WebuiManager
 
 logger = logging.getLogger(__name__)
+
+
+def _as_chatbot_messages(history: list[dict[str, Optional[str]]]) -> list[tuple[str, str]]:
+    if not history:
+        return []
+    first = history[0]
+    if isinstance(first, (list, tuple)) and len(first) == 2:
+        return history  # already in tuples format
+    converted = []
+    for msg in history:
+        role = msg.get("role", "assistant") if isinstance(msg, dict) else "assistant"
+        content = msg.get("content", "") if isinstance(msg, dict) else str(msg)
+        prefix = "User" if role == "user" else "Assistant"
+        converted.append((prefix, content))
+    return converted
 
 
 async def _initialize_llm(
@@ -157,12 +174,22 @@ async def _handle_new_step(
 
 def _handle_done(webui_manager: WebuiManager, history: AgentHistoryList):
     """Callback when the agent finishes the task (success or failure)."""
-    logger.info(
-        f"Agent task finished. Duration: {history.total_duration_seconds():.2f}s, Tokens: {history.total_input_tokens()}"
-    )
+    token_count = None
+    if getattr(history, "usage", None) is not None:
+        token_count = history.usage.total_tokens
+
+    if token_count is not None:
+        logger.info(
+            f"Agent task finished. Duration: {history.total_duration_seconds():.2f}s, Tokens: {token_count}"
+        )
+    else:
+        logger.info(
+            f"Agent task finished. Duration: {history.total_duration_seconds():.2f}s"
+        )
     final_summary = "**Task Completed**\n"
     final_summary += f"- Duration: {history.total_duration_seconds():.2f} seconds\n"
-    final_summary += f"- Total Input Tokens: {history.total_input_tokens()}\n"
+    if token_count is not None:
+        final_summary += f"- Total Tokens: {token_count}\n"
 
     final_result = history.final_result()
     if final_result:
@@ -220,7 +247,7 @@ async def run_agent_task(
         stop_button_comp: gr.Button(interactive=True),
         pause_resume_button_comp: gr.Button(value="⏸️ Pause", interactive=True),
         clear_button_comp: gr.Button(interactive=False),
-        chatbot_comp: gr.update(value=webui_manager.bu_chat_history),
+        chatbot_comp: gr.update(value=_as_chatbot_messages(webui_manager.bu_chat_history)),
         history_file_comp: gr.update(value=None),
         gif_comp: gr.update(value=None),
     }
@@ -240,6 +267,12 @@ async def run_agent_task(
     llm_api_key = get_setting("llm_api_key") or None
     max_steps = get_setting("max_steps", 100)
     max_actions = get_setting("max_actions", 10)
+    mcp_server_config_comp = webui_manager.id_to_component.get(
+        "agent_settings.mcp_server_config"
+    )
+    mcp_server_config_str = (
+        components.get(mcp_server_config_comp) if mcp_server_config_comp else None
+    )
 
     def get_browser_setting(key, default=None):
         comp = webui_manager.id_to_component.get(f"browser_settings.{key}")
@@ -251,6 +284,7 @@ async def run_agent_task(
     keep_browser_open = get_browser_setting("keep_browser_open", False)
     headless = get_browser_setting("headless", False)
     disable_security = get_browser_setting("disable_security", False)
+    accept_downloads = get_browser_setting("accept_downloads", True)
     window_w = int(get_browser_setting("window_w", 1280))
     window_h = int(get_browser_setting("window_h", 1100))
     cdp_url = get_browser_setting("cdp_url") or None
@@ -284,6 +318,27 @@ async def run_agent_task(
         ollama_num_ctx if llm_provider_name == "ollama" else None,
     )
 
+    mcp_tools = None
+    if mcp_server_config_str:
+        try:
+            mcp_config = json.loads(mcp_server_config_str)
+            mcp_servers = mcp_config.get("mcpServers", mcp_config)
+            if isinstance(mcp_servers, dict) and mcp_servers:
+                mcp_tools = Tools()
+                webui_manager.bu_mcp_clients = []
+                for server_name, server_cfg in mcp_servers.items():
+                    command = server_cfg.get("command")
+                    args = server_cfg.get("args", [])
+                    env = server_cfg.get("env")
+                    if not command:
+                        continue
+                    client = MCPClient(server_name=server_name, command=command, args=args, env=env)
+                    await client.register_to_tools(mcp_tools, prefix=f"{server_name}_")
+                    webui_manager.bu_mcp_clients.append(client)
+        except Exception as e:
+            logger.error(f"Failed to initialize MCP tools: {e}", exc_info=True)
+            gr.Warning(f"Failed to initialize MCP tools: {e}")
+
     should_close_browser_on_finish = not keep_browser_open
 
     try:
@@ -305,6 +360,7 @@ async def run_agent_task(
             webui_manager.bu_browser_session = BrowserSession(
                 headless=headless,
                 disable_security=disable_security,
+                accept_downloads=accept_downloads,
                 executable_path=browser_binary_path,
                 user_data_dir=browser_user_data,
                 cdp_url=cdp_endpoint,
@@ -347,6 +403,7 @@ async def run_agent_task(
                 task=task,
                 llm=main_llm,
                 browser_session=webui_manager.bu_browser_session,
+                tools=mcp_tools,
                 register_new_step_callback=step_callback_wrapper,
                 register_done_callback=done_callback_wrapper,
                 use_vision=use_vision,
@@ -367,6 +424,8 @@ async def run_agent_task(
             if hasattr(webui_manager.bu_agent, "settings"):
                 webui_manager.bu_agent.settings.generate_gif = gif_path
             webui_manager.bu_agent.browser_session = webui_manager.bu_browser_session
+            if mcp_tools:
+                webui_manager.bu_agent.tools = mcp_tools
 
         agent_run_coro = webui_manager.bu_agent.run(max_steps=max_steps)
         agent_task = asyncio.create_task(agent_run_coro)
@@ -423,7 +482,7 @@ async def run_agent_task(
 
             if len(webui_manager.bu_chat_history) > last_chat_len:
                 update_dict[chatbot_comp] = gr.update(
-                    value=webui_manager.bu_chat_history
+                    value=_as_chatbot_messages(webui_manager.bu_chat_history)
                 )
                 last_chat_len = len(webui_manager.bu_chat_history)
 
@@ -488,7 +547,7 @@ async def run_agent_task(
                 webui_manager.bu_chat_history.append(
                     {"role": "assistant", "content": "**Task Cancelled**."}
                 )
-            final_update[chatbot_comp] = gr.update(value=webui_manager.bu_chat_history)
+            final_update[chatbot_comp] = gr.update(value=_as_chatbot_messages(webui_manager.bu_chat_history))
         except Exception as e:
             logger.error(f"Error during agent execution: {e}", exc_info=True)
             error_message = (
@@ -507,6 +566,14 @@ async def run_agent_task(
 
         finally:
             webui_manager.bu_current_task = None
+
+            if webui_manager.bu_mcp_clients:
+                for client in webui_manager.bu_mcp_clients:
+                    try:
+                        await client.disconnect()
+                    except Exception:
+                        pass
+                webui_manager.bu_mcp_clients = []
 
             if should_close_browser_on_finish:
                 if webui_manager.bu_browser_session:
@@ -527,7 +594,7 @@ async def run_agent_task(
                         value="⏸️ Pause", interactive=False
                     ),
                     clear_button_comp: gr.update(interactive=True),
-                    chatbot_comp: gr.update(value=webui_manager.bu_chat_history),
+                    chatbot_comp: gr.update(value=_as_chatbot_messages(webui_manager.bu_chat_history)),
                 }
             )
             yield final_update
@@ -544,8 +611,10 @@ async def run_agent_task(
             pause_resume_button_comp: gr.update(value="⏸️ Pause", interactive=False),
             clear_button_comp: gr.update(interactive=True),
             chatbot_comp: gr.update(
-                value=webui_manager.bu_chat_history
-                      + [{"role": "assistant", "content": f"**Setup Error:** {e}"}]
+                value=_as_chatbot_messages(
+                    webui_manager.bu_chat_history
+                    + [{"role": "assistant", "content": f"**Setup Error:** {e}"}]
+                )
             ),
         }
 
@@ -650,6 +719,13 @@ async def handle_clear(webui_manager: WebuiManager):
     webui_manager.bu_current_task = None
 
     webui_manager.bu_agent = None
+    if webui_manager.bu_mcp_clients:
+        for client in webui_manager.bu_mcp_clients:
+            try:
+                await client.disconnect()
+            except Exception:
+                pass
+        webui_manager.bu_mcp_clients = []
 
     webui_manager.bu_chat_history = []
     webui_manager.bu_agent_task_id = None
@@ -782,7 +858,7 @@ def create_browser_use_agent_tab(webui_manager: WebuiManager):
     tab_components = {}
     with gr.Column():
         chatbot = gr.Chatbot(
-            lambda: webui_manager.bu_chat_history,
+            lambda: _as_chatbot_messages(webui_manager.bu_chat_history),
             elem_id="browser_use_chatbot",
             label="Agent Interaction",
             height=600,

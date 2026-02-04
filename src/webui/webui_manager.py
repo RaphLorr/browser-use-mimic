@@ -8,6 +8,8 @@ import asyncio
 from gradio.components import Component
 from browser_use.agent.service import Agent
 from browser_use.browser.session import BrowserSession
+from browser_use.mcp.client import MCPClient
+import subprocess
 
 
 class WebuiManager:
@@ -28,6 +30,9 @@ class WebuiManager:
         self.bu_current_task: Optional[asyncio.Task] = None
         self.bu_agent_task_id: Optional[str] = None
         self.bu_last_task: Optional[str] = None
+        self.bu_mcp_clients: list[MCPClient] = []
+        self.demo_process: Optional[subprocess.Popen] = None
+        self.demo_markers: list[dict[str, str]] = []
 
     def init_deep_research_agent(self) -> None:
         """

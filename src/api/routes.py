@@ -11,6 +11,8 @@ from browser_use.browser.session import BrowserSession
 
 from src.agent.code_agent_runner import create_flow_script
 from src.utils import llm_provider
+from src.workflow.store import save_workflow, load_workflow, list_workflows
+from src.workflow.runner import run_workflow
 
 api_router = APIRouter()
 
@@ -18,6 +20,7 @@ api_router = APIRouter()
 class BrowserConfig(BaseModel):
     headless: bool = False
     disable_security: bool = False
+    accept_downloads: bool = True
     executable_path: Optional[str] = None
     user_data_dir: Optional[str] = None
     cdp_url: Optional[str] = None
@@ -62,10 +65,17 @@ class ExportFlowResponse(BaseModel):
     script_text: str
 
 
+class WorkflowPayload(BaseModel):
+    name: Optional[str] = None
+    nodes: list[dict]
+    edges: list[dict]
+
+
 def _build_browser_kwargs(browser: BrowserConfig) -> dict:
     return {
         "headless": browser.headless,
         "disable_security": browser.disable_security,
+        "accept_downloads": browser.accept_downloads,
         "executable_path": browser.executable_path or os.getenv("BROWSER_PATH") or None,
         "user_data_dir": browser.user_data_dir or os.getenv("BROWSER_USER_DATA") or None,
         "cdp_url": browser.wss_url or browser.cdp_url or None,
@@ -138,3 +148,51 @@ async def export_flow(request: ExportFlowRequest):
         )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@api_router.get("/workflows")
+def api_list_workflows():
+    return {"workflows": list_workflows()}
+
+
+@api_router.post("/workflows/save")
+def api_save_workflow(payload: WorkflowPayload):
+    wid = save_workflow(payload.model_dump())
+    return {"id": wid}
+
+
+@api_router.get("/workflows/{workflow_id}")
+def api_load_workflow(workflow_id: str):
+    try:
+        return load_workflow(workflow_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+
+
+@api_router.post("/workflows/run")
+async def api_run_workflow(payload: WorkflowPayload):
+    llm_provider_name = os.getenv("DEFAULT_LLM", "google")
+    llm_model_name = os.getenv("DEFAULT_LLM_MODEL", "gemini-3-pro-preview")
+    llm_temperature = float(os.getenv("DEFAULT_LLM_TEMPERATURE", "0.6"))
+    llm_base_url = os.getenv("DEFAULT_LLM_BASE_URL") or None
+    llm_api_key = os.getenv("DEFAULT_LLM_API_KEY") or None
+
+    browser_kwargs = {
+        "headless": False,
+        "disable_security": False,
+        "accept_downloads": True,
+    }
+
+    result = await run_workflow(
+        payload.model_dump(),
+        llm_provider_name=llm_provider_name,
+        llm_model_name=llm_model_name,
+        llm_temperature=llm_temperature,
+        llm_base_url=llm_base_url,
+        llm_api_key=llm_api_key,
+        use_vision=True,
+        max_steps=100,
+        max_actions=10,
+        browser_kwargs=browser_kwargs,
+    )
+    return result

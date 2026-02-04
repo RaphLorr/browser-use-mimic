@@ -30,9 +30,11 @@ services:
       # Application Settings
       - ANONYMIZED_TELEMETRY=${ANONYMIZED_TELEMETRY:-false}
       - BROWSER_USE_LOGGING_LEVEL=${BROWSER_USE_LOGGING_LEVEL:-info}
+      - EVENTBUS_MEMORY_WARNING_MB=${EVENTBUS_MEMORY_WARNING_MB:-500}
       - DEFAULT_LLM=${DEFAULT_LLM:-google}
       - FLOW_STORAGE_DIR=${FLOW_STORAGE_DIR:-/app/tmp/flows}
       - FLOW_RUNS_DIR=${FLOW_RUNS_DIR:-/app/tmp/runs}
+      - WORKFLOW_STORAGE_DIR=${WORKFLOW_STORAGE_DIR:-/app/tmp/workflows}
 
       # Browser Settings
       - BROWSER_PATH=

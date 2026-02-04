@@ -1,3 +1,4 @@
+import json
 import os
 
 import gradio as gr
@@ -31,6 +32,10 @@ def create_agent_settings_tab(webui_manager: WebuiManager):
         with gr.Column():
             override_system_prompt = gr.Textbox(label="Override system prompt", lines=4, interactive=True)
             extend_system_prompt = gr.Textbox(label="Extend system prompt", lines=4, interactive=True)
+
+    with gr.Group():
+        mcp_json_file = gr.File(label="MCP server json", interactive=True, file_types=[".json"])
+        mcp_server_config = gr.Textbox(label="MCP server", lines=6, interactive=True, visible=False)
 
     with gr.Group():
         with gr.Row():
@@ -132,6 +137,8 @@ def create_agent_settings_tab(webui_manager: WebuiManager):
         max_steps=max_steps,
         max_actions=max_actions,
         flow_script_output_dir=flow_script_output_dir,
+        mcp_json_file=mcp_json_file,
+        mcp_server_config=mcp_server_config,
     ))
     webui_manager.add_components("agent_settings", tab_components)
 
@@ -144,6 +151,23 @@ def create_agent_settings_tab(webui_manager: WebuiManager):
         lambda provider: update_model_dropdown(provider),
         inputs=[llm_provider],
         outputs=[llm_model_name]
+    )
+
+    async def update_mcp_server(mcp_file: str):
+        if not mcp_file or not os.path.exists(mcp_file) or not mcp_file.endswith(".json"):
+            return None, gr.update(visible=False)
+        with open(mcp_file, "r") as f:
+            mcp_server = json.load(f)
+        return json.dumps(mcp_server, indent=2), gr.update(visible=True)
+
+    async def update_wrapper(mcp_file):
+        update_dict = await update_mcp_server(mcp_file)
+        yield update_dict
+
+    mcp_json_file.change(
+        update_wrapper,
+        inputs=[mcp_json_file],
+        outputs=[mcp_server_config, mcp_server_config]
     )
 
     return

@@ -90,6 +90,35 @@ Open:
 - `/api/agent/run` runs a task and saves history.
 - `/api/flow/export` generates a script from a task.
 
+### 6) Demonstration mode (Playwright codegen)
+**Purpose:** Record your own manual操作并导出脚本，再结合参数化+Prompt。
+- 在 UI 的 **Demonstration** 标签中点击 **Start Recording**。
+- 会弹出真实浏览器窗口，你操作完成后点 **Stop Recording**。
+- 脚本输出路径可自定义（默认 `./tmp/demo/recording.py`）。
+- 你可以把脚本交给 CodeAgent/Runner 或作为硬编码步骤使用。
+- 如果你想让 LLM 参与某一步，在录制时点击 **Insert LLM Step** 并输入提示词。
+
+### 7) Hybrid Flow（硬编码 + Prompt）
+**Purpose:** 先运行录制脚本，再交给 LLM 继续完成后续步骤。  
+- 在 UI 的 **Hybrid Flow** 标签中填写录制脚本路径与 LLM 任务。  
+- 支持传入 JSON 环境变量给脚本（用于参数化）。  
+- 适合“前半段固定动作 + 后半段智能处理”的场景。
+- 如果你在 **Browser Settings** 中提供了 CDP/WSS，混合流程会尝试复用同一个浏览器会话。
+
+### 8) Flow Editor（表格编辑脚本步骤）
+**Purpose:** 把 Playwright codegen 脚本解析成可编辑步骤表格，并直接执行。  
+- 在 **Flow Editor** 标签输入脚本路径并点击 **Load Script**  
+- 可在表格中调整步骤、禁用某些步骤  
+- 点击 **Run Steps** 直接执行（无需离开系统）
+- LLM 步骤会以 `type=llm` 形式出现在表格里，可移动/编辑提示词。
+
+### 9) Workflow Builder（拖拽流程）
+**Purpose:** 让同事通过拖拽节点搭建自动化流程。  
+- 访问 **Workflow Builder** 标签（ReactFlow 画布）  
+- 左侧拖拽节点到画布，连接节点形成流程  
+- 右侧配置节点参数  
+- 点击 **Save** 保存流程 / **Run** 执行流程  
+
 ## API
 The UI is mounted at `/`, and API routes are under `/api`.
 

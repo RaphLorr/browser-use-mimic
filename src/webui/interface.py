@@ -4,6 +4,9 @@ from src.webui.webui_manager import WebuiManager
 from src.webui.components.agent_settings_tab import create_agent_settings_tab
 from src.webui.components.browser_settings_tab import create_browser_settings_tab
 from src.webui.components.browser_use_agent_tab import create_browser_use_agent_tab
+from src.webui.components.demonstration_tab import create_demonstration_tab
+from src.webui.components.hybrid_flow_tab import create_hybrid_flow_tab
+from src.webui.components.flow_editor_tab import create_flow_editor_tab
 from src.webui.components.load_save_config_tab import create_load_save_config_tab
 
 theme_map = {
@@ -76,6 +79,20 @@ def create_ui(theme_name="Ocean"):
 
             with gr.TabItem("🤖 Run Agent"):
                 create_browser_use_agent_tab(ui_manager)
+
+            with gr.TabItem("🧪 Demonstration"):
+                create_demonstration_tab(ui_manager)
+
+            with gr.TabItem("🧱 Flow Editor"):
+                create_flow_editor_tab(ui_manager)
+
+            with gr.TabItem("🧭 Workflow Builder"):
+                gr.HTML(
+                    '<iframe src="/workflow/" style="width:100%;height:80vh;border:none;"></iframe>'
+                )
+
+            with gr.TabItem("🧩 Hybrid Flow"):
+                create_hybrid_flow_tab(ui_manager)
 
             with gr.TabItem("🎁 Agent Marketplace"):
                 gr.Markdown(

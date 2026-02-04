@@ -1,11 +1,23 @@
 import os
-from distutils.util import strtobool
 import gradio as gr
 import logging
 
 from src.webui.webui_manager import WebuiManager
 
 logger = logging.getLogger(__name__)
+
+def _strtobool(value: str) -> bool:
+    """
+    Compatibility for distutils.util.strtobool (removed in Python 3.12).
+    """
+    if isinstance(value, bool):
+        return value
+    val = str(value).strip().lower()
+    if val in {"y", "yes", "t", "true", "on", "1"}:
+        return True
+    if val in {"n", "no", "f", "false", "off", "0"}:
+        return False
+    raise ValueError(f"invalid truth value {value!r}")
 
 
 async def close_browser(webui_manager: WebuiManager):
@@ -46,13 +58,13 @@ def create_browser_settings_tab(webui_manager: WebuiManager):
         with gr.Row():
             use_own_browser = gr.Checkbox(
                 label="Use Own Browser",
-                value=bool(strtobool(os.getenv("USE_OWN_BROWSER", "false"))),
+                value=bool(_strtobool(os.getenv("USE_OWN_BROWSER", "false"))),
                 info="Use your existing browser instance",
                 interactive=True
             )
             keep_browser_open = gr.Checkbox(
                 label="Keep Browser Open",
-                value=bool(strtobool(os.getenv("KEEP_BROWSER_OPEN", "true"))),
+                value=bool(_strtobool(os.getenv("KEEP_BROWSER_OPEN", "true"))),
                 info="Keep Browser Open between Tasks",
                 interactive=True
             )
@@ -66,6 +78,12 @@ def create_browser_settings_tab(webui_manager: WebuiManager):
                 label="Disable Security",
                 value=False,
                 info="Disable browser security",
+                interactive=True
+            )
+            accept_downloads = gr.Checkbox(
+                label="Accept Downloads",
+                value=True,
+                info="Allow the browser to download files",
                 interactive=True
             )
 
@@ -133,6 +151,7 @@ def create_browser_settings_tab(webui_manager: WebuiManager):
             keep_browser_open=keep_browser_open,
             headless=headless,
             disable_security=disable_security,
+            accept_downloads=accept_downloads,
             save_recording_path=save_recording_path,
             save_trace_path=save_trace_path,
             save_agent_history_path=save_agent_history_path,

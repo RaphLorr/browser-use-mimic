@@ -5,16 +5,20 @@ import gradio as gr
 import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from src.api import api_router
+from src.utils.bubus_patch import apply_eventbus_memory_warning_threshold
 from src.webui.interface import theme_map, create_ui
 
 load_dotenv()
+apply_eventbus_memory_warning_threshold(default_mb=500)
 
 
 def _create_app(theme_name: str) -> FastAPI:
     app = FastAPI(title="Browser Use WebUI")
     app.include_router(api_router, prefix="/api")
+    app.mount("/workflow", StaticFiles(directory="public/workflow", html=True), name="workflow")
 
     demo = create_ui(theme_name=theme_name)
     app = gr.mount_gradio_app(app, demo, path="/")
